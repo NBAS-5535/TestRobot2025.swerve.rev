@@ -4,8 +4,11 @@
 
 package frc.robot.subsystems;
 
+import java.util.Optional;
+
 import com.ctre.phoenix6.hardware.Pigeon2;
 
+import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -17,12 +20,21 @@ import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.util.WPIUtilJNI;
 import edu.wpi.first.wpilibj.ADIS16470_IMU;
 import edu.wpi.first.wpilibj.ADIS16470_IMU.IMUAxis;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.DriveConstants;
+import frc.robot.Constants.GyroConstants;
 import frc.robot.ConstantsSecondary.DeviceConstants;
 import frc.robot.utils.SwerveUtils;
 
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StructArrayPublisher;
+
 public class SwerveDriveSubsystem extends SubsystemBase {
+  /** gyro angular offset in degrees <b>after</b> auto*/
+  double gyroAutoAngularOffset = 0;
+
   // Create MAXSwerveModules
   private final MAXSwerveModule m_frontLeft =
       new MAXSwerveModule(
@@ -52,6 +64,14 @@ public class SwerveDriveSubsystem extends SubsystemBase {
   //**private final ADIS16470_IMU m_gyro = new ADIS16470_IMU();
   private final Pigeon2 m_gyro = new Pigeon2(DeviceConstants.gyroscopeChannelId, "rio");
 
+  //simulation stuff
+  private final StructArrayPublisher<SwerveModuleState> publisher = NetworkTableInstance.getDefault()
+      .getStructArrayTopic("/SwerveStates", SwerveModuleState.struct).publish();
+
+  // Alliance
+  private Optional<Alliance> m_alliance = DriverStation.getAlliance();
+
+
   // Slew rate filter variables for controlling lateral acceleration
   private double m_currentRotation = 0.0;
   private double m_currentTranslationDir = 0.0;
@@ -61,6 +81,7 @@ public class SwerveDriveSubsystem extends SubsystemBase {
   private SlewRateLimiter m_rotLimiter = new SlewRateLimiter(DriveConstants.kRotationalSlewRate);
   private double m_prevTime = WPIUtilJNI.now() * 1e-6;
 
+  /* original template code
   // Odometry class for tracking robot pose
   SwerveDriveOdometry m_odometry =
       new SwerveDriveOdometry(
@@ -73,6 +94,28 @@ public class SwerveDriveSubsystem extends SubsystemBase {
             m_rearLeft.getPosition(),
             m_rearRight.getPosition()
           });
+  */
+
+  // Odometry class for tracking robot pose
+  SwerveDriveOdometry m_odometry = new SwerveDriveOdometry(
+    DriveConstants.kDriveKinematics,
+    m_gyro.getRotation2d().plus(new Rotation2d(GyroConstants.kGyroAngularOffset)),
+    new SwerveModulePosition[] {
+      m_frontLeft.getPosition(),
+      m_frontRight.getPosition(),
+      m_rearLeft.getPosition(),
+      m_rearRight.getPosition()
+    });
+//Pose Estimator
+  SwerveDrivePoseEstimator PoseEstimator = new SwerveDrivePoseEstimator(
+    DriveConstants.kDriveKinematics,
+    m_gyro.getRotation2d(), 
+    new SwerveModulePosition[] {
+      m_frontLeft.getPosition(),
+      m_frontRight.getPosition(),
+      m_rearLeft.getPosition(),
+      m_rearRight.getPosition()
+    }, new Pose2d());
 
   /** Creates a new DriveSubsystem. */
   public SwerveDriveSubsystem() {}
@@ -260,6 +303,21 @@ public class SwerveDriveSubsystem extends SubsystemBase {
     return m_gyro.getRate() * (DriveConstants.kGyroReversed ? -1.0 : 1.0);
   }
 
+  /** blue is default */
+  public Alliance getAlliance() { // blue is default for the path planner (paths are made on the blue side)
+    m_alliance = DriverStation.getAlliance();
+    if(m_alliance.isPresent()){
+      if(m_alliance.get() == Alliance.Blue){
+        return Alliance.Blue;
+      }else{
+        return Alliance.Red;
+      }
+    }else{
+      System.err.println("No alliance found!");
+      return Alliance.Blue;
+    }
+  }
+
   /////////////////////////////////////////
   /** MINE: Additional command functions */
   public void moveMotors(String motorLabel, double speed){
@@ -297,5 +355,30 @@ public class SwerveDriveSubsystem extends SubsystemBase {
     m_rearRight.setDesiredState(desiredStates[3]);
 
     //showChasisSpeedsOnLogger("module");
-}
+  }
+
+  @Override
+  public void simulationPeriodic() {
+    // This method will be called once per scheduler run during simulation
+    double [] currentState = getCurrentChasisSpeeds();
+    publisher.set(new SwerveModuleState[] {
+      new SwerveModuleState(currentState[1], Rotation2d.fromDegrees(currentState[0])),
+      new SwerveModuleState(currentState[3], Rotation2d.fromDegrees(currentState[2])),
+      new SwerveModuleState(currentState[5], Rotation2d.fromDegrees(currentState[4])),
+      new SwerveModuleState(currentState[7], Rotation2d.fromDegrees(currentState[6]))
+    });
+  }
+
+  public double[] getCurrentChasisSpeeds() {
+    double loggingState[] = {m_frontLeft.getState().angle.getDegrees(),
+      m_frontLeft.getState().speedMetersPerSecond,
+      m_frontRight.getState().angle.getDegrees(),
+      m_frontRight.getState().speedMetersPerSecond,
+      m_rearLeft.getState().angle.getDegrees(),
+      m_rearLeft.getState().speedMetersPerSecond,
+      m_rearRight.getState().angle.getDegrees(),
+      m_rearRight.getState().speedMetersPerSecond};
+
+      return loggingState;
+  }
 }

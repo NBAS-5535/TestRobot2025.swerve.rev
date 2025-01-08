@@ -166,6 +166,18 @@ public class MAXSwerveModule {
     m_drivingEncoder.setPosition(0);
   }
 
+  public SwerveModuleState getDesiredState(){
+    return m_desiredState;
+  }
+  
+  public double getDrivingVoltage(){
+    return m_drivingSparkMax.getOutputCurrent();
+  }
+
+  public double getTurningVoltage(){
+    return m_turningSparkMax.getOutputCurrent();
+  }
+  
   /////////////////////////////////////////
   /** MINE: Additional command functions */
   public void setSpeed(double speed) {
